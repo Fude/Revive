@@ -69,6 +69,45 @@ vr::EVRCompositorError CompositorBase::SubmitFrame(const ovrViewScaleDesc* viewS
 			// TODO: Handle overlay errors.
 			vr::VROverlay()->ShowOverlay(overlay);
 		}
+		else if (i > 0 && layerPtrList[i]->Type == ovrLayerType_EyeFov)
+		{
+			// This is an extra stereoscopic layer, let's hope it's Side-by-Side and render it on top
+			// TODO: Blend these layers into the eye textures instead.
+			ovrLayerEyeFov* layer = (ovrLayerEyeFov*)layerPtrList[i];
+
+			// Check if this is side-by-side texture, give up if it is not.
+			if (layer->ColorTexture[0] != layer->ColorTexture[1])
+				continue;
+
+			// Every overlay is associated with a swapchain.
+			// This is necessary because the position of the layer may change in the array,
+			// which would otherwise cause flickering between overlays.
+			vr::VROverlayHandle_t overlay = layer->ColorTexture[0]->Overlay;
+			if (overlay == vr::k_ulOverlayHandleInvalid)
+			{
+				overlay = CreateOverlay();
+				vr::VROverlay()->SetOverlayFlag(overlay, vr::VROverlayFlags_SideBySide_Parallel, true);
+				layer->ColorTexture[0]->Overlay = overlay;
+			}
+			activeOverlays.push_back(overlay);
+
+			// This is the high quality overlay.
+			vr::VROverlay()->SetOverlayWidthInMeters(overlay, 20.0f);
+			vr::HmdMatrix34_t transform = { 0 };
+			transform.m[0][0] = transform.m[1][1] = transform.m[2][2] = 1.0f;
+			transform.m[2][3] = -10.0f;
+			vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(overlay, vr::k_unTrackedDeviceIndex_Hmd, &transform);
+
+			// Set the texture and show the overlay.
+			vr::VRTextureBounds_t bounds = ViewportToTextureBounds(layer->Viewport[0], layer->ColorTexture[0], layer->Header.Flags);
+			bounds.uMax *= 2.0f;
+			vr::VROverlay()->SetOverlayTextureBounds(overlay, &bounds);
+			vr::VROverlay()->SetOverlayTexelAspect(overlay, layer->ColorTexture[0]->Desc.Width / layer->ColorTexture[0]->Desc.Height);
+			vr::VROverlay()->SetOverlayTexture(overlay, layer->ColorTexture[0]->Submitted);
+
+			// TODO: Handle overlay errors.
+			vr::VROverlay()->ShowOverlay(overlay);
+		}
 	}
 
 	// Hide previous overlays that are not part of the current layers.
